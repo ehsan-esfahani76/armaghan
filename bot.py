@@ -88,7 +88,6 @@ UPLOAD_INFO_FILE = os.path.join(
 PAGE_SIZE = 10
 
 
-# ساخت پوشه data
 os.makedirs(
     DATA_DIR,
     exist_ok=True
@@ -343,6 +342,39 @@ def format_price(value):
 
 
 # =========================================================
+# فرمت موجودی
+# =========================================================
+
+def format_stock(value):
+
+    try:
+
+        if value == "":
+            return "۰"
+
+        number = float(value)
+
+        if number.is_integer():
+
+            return to_persian_digits(
+                f"{int(number):,}"
+            )
+
+        return to_persian_digits(
+            f"{number:,.2f}"
+        )
+
+    except Exception:
+
+        if pd.isna(value):
+            return "۰"
+
+        return to_persian_digits(
+            str(value)
+        )
+
+
+# =========================================================
 # خواندن Excel
 # =========================================================
 
@@ -375,6 +407,10 @@ def load_prices():
         # نام‌های قابل قبول ستون‌ها
         column_mapping = {
 
+            # -------------------------
+            # کد
+            # -------------------------
+
             "کد": "code",
             "کد کالا": "code",
             "کدکالا": "code",
@@ -383,6 +419,10 @@ def load_prices():
             "code": "code",
             "Code": "code",
             "CODE": "code",
+
+            # -------------------------
+            # نام
+            # -------------------------
 
             "نام": "name",
             "نام کالا": "name",
@@ -394,6 +434,10 @@ def load_prices():
             "Name": "name",
             "NAME": "name",
 
+            # -------------------------
+            # قیمت
+            # -------------------------
+
             "قیمت": "price",
             "قیمت کالا": "price",
             "قیمت فروش": "price",
@@ -403,8 +447,23 @@ def load_prices():
             "price": "price",
             "Price": "price",
             "PRICE": "price",
+
+            # -------------------------
+            # موجودی
+            # -------------------------
+
+            "موجودی": "stock",
+            "موجودی کالا": "stock",
+            "تعداد": "stock",
+            "تعداد موجود": "stock",
+            "تعداد کالا": "stock",
+
+            "stock": "stock",
+            "Stock": "stock",
+            "STOCK": "stock",
         }
 
+        # تغییر نام ستون‌ها
         df = df.rename(
             columns={
                 column:
@@ -416,10 +475,12 @@ def load_prices():
             }
         )
 
+        # ستون‌های الزامی
         required_columns = [
             "code",
             "name",
-            "price"
+            "price",
+            "stock"
         ]
 
         for column in required_columns:
@@ -432,28 +493,42 @@ def load_prices():
 
                 return None
 
+        # فقط ستون‌های مورد نیاز
         df = df[
             [
                 "code",
                 "name",
-                "price"
+                "price",
+                "stock"
             ]
         ]
 
-        df = df.fillna("")
-
+        # مقدارهای خالی
         df["code"] = (
             df["code"]
+            .fillna("")
             .astype(str)
             .str.strip()
         )
 
         df["name"] = (
             df["name"]
+            .fillna("")
             .astype(str)
             .str.strip()
         )
 
+        df["price"] = (
+            df["price"]
+            .fillna(0)
+        )
+
+        df["stock"] = (
+            df["stock"]
+            .fillna(0)
+        )
+
+        # حذف ردیف‌های کاملاً خالی
         df = df[
             ~(
                 (df["code"] == "")
@@ -497,6 +572,10 @@ def product_text(
         row["price"]
     )
 
+    stock = format_stock(
+        row["stock"]
+    )
+
     text = ""
 
     if number is not None:
@@ -508,7 +587,8 @@ def product_text(
     text += (
         f"📦 {name}\n"
         f"🔢 کد: {code}\n"
-        f"💰 قیمت: {price} تومان"
+        f"💰 قیمت: {price} تومان\n"
+        f"📊 موجودی: {stock}"
     )
 
     return text
@@ -898,7 +978,7 @@ async def upload_command(
     await update.message.reply_text(
         "📤 لطفاً فایل Excel را ارسال کنید.\n\n"
         "ستون‌های فایل باید شامل این موارد باشند:\n\n"
-        "کد | نام | قیمت"
+        "کد | نام | قیمت | موجودی"
     )
 
 
@@ -1046,9 +1126,15 @@ async def handle_document(
 
             return
 
-        if os.path.exists(
+        # -------------------------------------------------
+        # بررسی ساختار فایل قبل از جایگزینی
+        # -------------------------------------------------
+
+        old_excel_exists = os.path.exists(
             EXCEL_FILE
-        ):
+        )
+
+        if old_excel_exists:
 
             shutil.copy2(
                 EXCEL_FILE,
@@ -1064,6 +1150,7 @@ async def handle_document(
 
         if df is None:
 
+            # بازگردانی فایل قبلی
             if os.path.exists(
                 BACKUP_FILE
             ):
@@ -1085,8 +1172,8 @@ async def handle_document(
 
             await update.message.reply_text(
                 "❌ ساختار فایل Excel صحیح نیست.\n\n"
-                "فایل باید حداقل این سه ستون را داشته باشد:\n\n"
-                "کد | نام | قیمت"
+                "فایل باید شامل این چهار ستون باشد:\n\n"
+                "کد | نام | قیمت | موجودی"
             )
 
             return
@@ -1555,7 +1642,7 @@ async def button_handler(
         await query.message.reply_text(
             "📤 فایل Excel را ارسال کنید.\n\n"
             "فرمت ستون‌ها:\n\n"
-            "کد | نام | قیمت"
+            "کد | نام | قیمت | موجودی"
         )
 
     # =====================================================
@@ -1678,10 +1765,28 @@ async def button_handler(
                 get_upload_info()
             )
 
+            # محاسبه مجموع موجودی
+            try:
+
+                total_stock = pd.to_numeric(
+                    df["stock"],
+                    errors="coerce"
+                ).fillna(0).sum()
+
+                total_stock_text = format_stock(
+                    total_stock
+                )
+
+            except Exception:
+
+                total_stock_text = "نامشخص"
+
             text = (
                 "📊 وضعیت لیست قیمت\n\n"
                 f"📦 تعداد کالاها: "
                 f"{to_persian_digits(len(df))}\n"
+                f"📊 مجموع موجودی: "
+                f"{total_stock_text}\n"
                 "✅ وضعیت: فعال\n"
             )
 
@@ -1707,7 +1812,7 @@ async def button_handler(
         await query.message.reply_text(
             "ℹ️ راهنمای ربات\n\n"
             "📋 لیست قیمت:\n"
-            "نمایش کد، نام و قیمت کالاها\n\n"
+            "نمایش کد، نام، قیمت و موجودی کالاها\n\n"
             "🔎 جستجو:\n"
             "جستجو با کد یا نام کالا\n\n"
             "🆔 /id:\n"
