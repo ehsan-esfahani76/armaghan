@@ -1,0 +1,7 @@
+python-telegram-bot
+pandas
+openpyxl
+jdatetime
+python-dotenv
+flask
+gunicorn
